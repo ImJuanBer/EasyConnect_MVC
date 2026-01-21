@@ -34,43 +34,9 @@ class Controller:
         self.tbModel = TBModel()
         self.init_ACAD()
         self.view.actionOpen_ACAD.triggered.connect(self.open_ACAD_master_file)
-        # ------------------------------------------------------------------------
-        # ------------------------------------------------------------------------
-        # Generate Templates
-        #self.templatesModel.create_templates(self.acadModel)
-        # ------------------------------------------------------------------------
-        #------------------------------------------------------------------------
-        # Generate Contacts
-        """self.contactsModel.create_contacts(self.acadModel, 24, 40, "ONAF", "55", contactos_config={
-            
-            "49W": {
-                "device_name": "WINDING TEMPERATURE INDICATOR",
-                "tag_id": "WT",
-                "number_contacts": 3,
 
-            },
-            "26Q": {
-                "device_name": "LIQUID TEMPERATURE INDICATOR",
-                "tag_id": "OT",
-                "number_contacts": 3,
-            },
-            "63P": {
-                "device_name": "PRESSURE RELIEF DEVICE",
-                "tag_id": "PRD",
-                "number_contacts": 3
-            },
-        })"""
-        # ------------------------------------------------------------------------
-        # ------------------------------------------------------------------------
-        # Generate CTS
-        #self.ctModel.create_ct_hv(self.acadModel, 110, 47)
-        # ------------------------------------------------------------------------
-        # ------------------------------------------------------------------------
-        # Read & Sort cross-references: Make Terminal Blocks
-        #self.tbModel.listar_tbx_por_id(self.acadModel)
-        #self.tbModel.crear_terminal_blocks(self.acadModel, start_xy=(192, 43), dx=20, dy=-1.0992, MAX_POR_COLUMNA=30)
-        # ------------------------------------------------------------------------
-        # ------------------------------------------------------------------------
+        self.view.run_button.clicked.connect(self.runAll)
+
         # Regen ACAD sheet
         regeneration(self.doc)
 
@@ -164,14 +130,11 @@ class Controller:
             self.pop_up(f"Failed to open AutoCAD document after {max_retries} retries.")
             return False
 
-    def get_data(self):
+    def runAll(self):
+        data = self.view.get_data()  # ← get the dictionary from view
 
-        try:
-            self.drawing_selector = str(self.view.drawing_selector_box.currentText())
-            self.phases = str(self.view.phases_box.currentText())
+        drawing_selector = data["drawing_selector"]
+        phases = data["phases"]
 
-
-
-        except ValueError as Value:
-            self.pop_up(f"Program won't run till you remove the string {Value} \n"
-                        f"Use only numbers!")
+        print(drawing_selector)
+        print(phases)
