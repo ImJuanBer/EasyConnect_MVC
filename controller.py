@@ -23,19 +23,22 @@ def regeneration(doc):
             pass
 
 
+# noinspection PyPep8Naming
 class Controller:
     def __init__(self, view):
         # ------------------------------------------------------------------------
         # ------------------------------------------------------------------------
         self.view = view  # View is MainApp and self.View has access to all MainApp features
-        self.templatesModel = TemplateModel()
-        self.contactsModel = ContactsModel()
+        # self.templatesModel = TemplateModel()
+        # self.contactsModel = ContactsModel()
         self.ctModel = CTModel()
-        self.tbModel = TBModel()
+        # self.tbModel = TBModel()
         self.init_ACAD()
         self.view.actionOpen_ACAD.triggered.connect(self.open_ACAD_master_file)
 
-        self.view.run_button.clicked.connect(self.runAll)
+        self._connect_inputs()
+        # self.view.run_button.clicked.connect(self.runAll)
+        self.runAll()
 
         # Regen ACAD sheet
         regeneration(self.doc)
@@ -130,11 +133,91 @@ class Controller:
             self.pop_up(f"Failed to open AutoCAD document after {max_retries} retries.")
             return False
 
+    # =========  REFRESH ALL SIGNALS  =========
+    def _connect_inputs(self):
+        line_edits = [
+            self.view.i_so,
+            self.view.i_ct_groups_qty,
+            self.view.i_transformer_kVA,
+            self.view.i_HV_voltage,
+            self.view.i_LV_voltage,
+            self.view.i_frequency,
+            self.view.i_ct_pocket_H,
+            self.view.i_ct_pocket_H0,
+            self.view.i_CTH1_tag,
+            self.view.i_Bushing_OD,
+            self.view.i_CTH1_height_override,
+            self.view.i_CTH1_ratio_override,
+            self.view.i_CTH1_accuracy_override,
+            self.view.i_CTH1_ratio_type,
+            self.view.i_CTH1_thermal_factor,
+        ]
+
+        for le in line_edits:
+            le.textChanged.connect(self.update_data_cache)
+
+        combo_boxes = [
+            self.view.box_Cooling_Class,
+            self.view.box_CTH1_Application,
+            self.view.box_CTH1_Type,
+            self.view.box_CTH1_bushing_angled,
+            self.view.box_CTH1_STD,
+        ]
+
+        for cb in combo_boxes:
+            cb.currentIndexChanged.connect(self.update_data_cache)
+
+    def update_data_cache(self):
+        self.runAll()
+
     def runAll(self):
+
         data = self.view.get_data()  # ← get the dictionary from view
+        # =========  MAPPING DICTIONARY VALUES =========
+        # =========        GENERAL DATA        =========
+        so = data["so"]
+        ct_groups_qty = data["ct_groups_qty"]
+        transformer_kVA = data["transformer_kVA"]
+        HV_voltage = data["HV_voltage"]
+        HV_amps = data["HV_amps"]
+        LV_voltage = data["LV_voltage"]
+        LV_amps = data["LV_amps"]
+        frequency = data["frequency"]
+        ct_pocket_H = data["ct_pocket_H"]
+        ct_pocket_H0 = data["ct_pocket_H0"]
+        cooling_class = data["cooling_class"]
 
-        drawing_selector = data["drawing_selector"]
-        phases = data["phases"]
+        # ========= HV CTH INPUTS =========
+        CTH1_tag = data["CTH1_tag"]
+        Bushing_OD = data["Bushing_OD"]
+        CTH1_height_override = data["CTH1_height_override"]
+        CTH1_ratio_override = data["CTH1_ratio_override"]
+        CTH1_accuracy_override = data["CTH1_accuracy_override"]
+        CTH1_ratio_type = data["CTH1_ratio_type"]
+        CTH1_thermal_factor = data["CTH1_thermal_factor"]
 
-        print(drawing_selector)
-        print(phases)
+        box_CTH1_Application = data["box_CTH1_Application"]
+        box_CTH1_Type = data["box_CTH1_Type"]
+        box_CTH1_bushing_angled = data["box_CTH1_bushing_angled"]
+        box_CTH1_STD = data["box_CTH1_STD"]
+
+        # ========= DEBUG =========
+        print("SO:", so)
+        print("Transformer kVA:", transformer_kVA)
+        print("Cooling class:", cooling_class)
+        print("CTH1 tag:", CTH1_tag)
+
+        self.view.init_ct_high_tables()
+        self.run_model()
+
+    def run_model(self):
+        data = self.view.get_data()
+        try:
+            result = self.ctModel.run(data)
+        except Exception as e:
+            # El controller no calcula, solo coordina
+            self.view.pop_up(f"Model error:\n{e}")
+            return
+
+        if isinstance(result, dict) and result:
+            self.view.set_data(result)

@@ -1,7 +1,9 @@
 import os
 from PyQt6.QtGui import QFontDatabase, QFont
 from PyQt6.QtWidgets import QMainWindow, QLabel, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem
+from PyQt6.QtCore import Qt
 from UI_Main import Ui_EasyConnectACAD  # Import the auto_generate
+
 
 def highlight_text(line_edit):
     line_edit.selectAll()
@@ -49,6 +51,8 @@ class MainApp(QMainWindow, Ui_EasyConnectACAD):
             label.setFont(custom_font)
         # --------------------------------------------------------------------------------------------------------------
 
+    # =========  GETTERS  =========
+
     def get_data(self) -> dict:
         """Reads UI data"""
         return {
@@ -83,20 +87,37 @@ class MainApp(QMainWindow, Ui_EasyConnectACAD):
             "box_CTH1_bushing_angled": self.box_CTH1_bushing_angled.currentText().strip(),
             "box_CTH1_STD": self.box_CTH1_STD.currentText().strip(),
 
-
-
             # QTableWidgets
             # "ct_table_1": self._get_table(self.CT_TABLE_1),
         }
 
+    def _get_table(self, table: QTableWidget):
+        rows = table.rowCount()
+        cols = table.columnCount()
+        matrix = []
+        for r in range(rows):
+            row = []
+            for c in range(cols):
+                it = table.item(r, c)
+                row.append("" if it is None else it.text())
+            matrix.append(row)
+        return matrix
+
+    # =========  SETTERS  =========
+    # ==========================
+    # HELPERS
+    # ==========================
+
     def set_data(self, data: dict) -> None:
-        """Actualiza el UI con keys presentes en 'data'."""
+        outputs_map = {
+            "HV_amps": self.o_HV_amps,
+            "LV_amps": self.o_LV_amps,
+            # "something_else": self.o_something_else,
+        }
 
-        if "drawing_selector" in data:
-            self._set_combobox_by_text(self.drawing_selector_box, data["drawing_selector"])
-
-        if "phases" in data:
-            self._set_combobox_by_text(self.phases_box, data["phases"])
+        for key, widget in outputs_map.items():
+            if key in data:
+                widget.setText("" if data[key] is None else str(data[key]))
 
         # Ejemplo line edit:
         # if "customer" in data:
@@ -105,10 +126,6 @@ class MainApp(QMainWindow, Ui_EasyConnectACAD):
         # Ejemplo tabla:
         # if "ct_table_1" in data:
         #     self._set_table(self.CT_TABLE_1, data["ct_table_1"])
-
-    # ==========================
-    # HELPERS
-    # ==========================
 
     def _set_combobox_by_text(self, cb: QComboBox, value) -> None:
         txt = "" if value is None else str(value)
@@ -128,17 +145,143 @@ class MainApp(QMainWindow, Ui_EasyConnectACAD):
                     table.setItem(r, c, item)
                 item.setText("" if val is None else str(val))
 
-    def _get_table(self, table: QTableWidget):
-        rows = table.rowCount()
-        cols = table.columnCount()
-        matrix = []
-        for r in range(rows):
-            row = []
-            for c in range(cols):
-                it = table.item(r, c)
-                row.append("" if it is None else it.text())
-            matrix.append(row)
-        return matrix
 
 
+    # =========  CTS ACCOMODATION TABLE =========
 
+    def init_ct_high_tables(self):
+        """
+        Initializes 6 CT High tables and connects signals so numbering is continuous ("memory")
+        across tables for each column H0..H3.
+        """
+        self.ct_tables = [
+            (self.tableCTHigh1, self.i_CTH1_tag),
+            (self.tableCTHigh2, self.i_CTH2_tag),
+            (self.tableCTHigh3, self.i_CTH3_tag),
+            #(self.tableCTHigh4, self.i_CTH4_tag),
+            #(self.tableCTHigh5, self.i_CTH5_tag),
+            #(self.tableCTHigh6, self.i_CTH6_tag),
+        ]
+
+        for table, tag_edit in self.ct_tables:
+            self._setup_one_ct_table(table)
+
+            # When user edits the first row (CT/PH), rebuild all
+            table.itemChanged.connect(self._rebuild_all_ct_tables)
+
+            # Faster than editingFinished: updates as user types tag
+            tag_edit.textEdited.connect(self._rebuild_all_ct_tables)
+
+        # Build once at start
+        self._rebuild_all_ct_tables()
+
+    def _setup_one_ct_table(self, t):
+        """Setup headers, row count, editability: row 0 editable, rows below read-only."""
+        t.setColumnCount(4)
+        t.setHorizontalHeaderLabels(["H0", "H1", "H2", "H3"])
+        t.verticalHeader().setVisible(True)
+
+        max_ct_per_phase = 4  # <-- adjust if you want more rows
+        t.setRowCount(1 + max_ct_per_phase)
+
+        labels = ["CT / PH"] + [""] * (t.rowCount() - 1)
+        t.setVerticalHeaderLabels(labels)
+
+        vh = t.verticalHeader()
+        vh.setSectionsClickable(False)
+        vh.setHighlightSections(False)
+
+
+        # Row 0 editable
+        for c in range(4):
+            it = t.item(0, c)
+            if it is None:
+                it = QTableWidgetItem("")
+                t.setItem(0, c, it)
+            it.setFlags(
+                Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsEditable
+            )
+
+        # Rows 1... read-only
+        for r in range(1, t.rowCount()):
+            for c in range(4):
+                it = t.item(r, c)
+                if it is None:
+                    it = QTableWidgetItem("")
+                    t.setItem(r, c, it)
+                it.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+
+    def _rebuild_all_ct_tables(self, *_):
+        """
+        Rebuilds ALL 6 tables in order using a per-column memory accumulator.
+        This guarantees consistent numbering even if user edits earlier tables.
+        """
+        used = [0, 0, 0, 0]  # memory per column H0..H3 (counts of CTs already assigned)
+
+        # Block signals for all tables (avoid recursion due to setText)
+        for table, _ in self.ct_tables:
+            table.blockSignals(True)
+
+        try:
+            for table, tag_edit in self.ct_tables:
+                tag = (tag_edit.text() or "").strip()
+
+                # Read N (CT/PH) from row 0, each column
+                n_list = []
+                for col in range(4):
+                    top_item = table.item(0, col)
+                    txt = (top_item.text() if top_item else "").strip()
+
+                    if txt == "":
+                        n = 0
+                    else:
+                        try:
+                            n = int(txt)
+                        except ValueError:
+                            n = 0
+                            # Optional: clear invalid input
+                            if top_item:
+                                top_item.setText("")
+                    if n < 0:
+                        n = 0
+
+                    n_list.append(n)
+
+                # Fill each column using the memory offset
+                for col in range(4):
+                    self._fill_ct_table_column_with_offset(
+                        table=table,
+                        col=col,
+                        n=n_list[col],
+                        tag=tag,
+                        start_k=used[col],
+                    )
+                    used[col] += n_list[col]
+
+        finally:
+            for table, _ in self.ct_tables:
+                table.blockSignals(False)
+
+    def _fill_ct_table_column_with_offset(self, table, col: int, n: int, tag: str, start_k: int):
+        """
+        Fills column 'col' below row 0 with 'n' tags:
+          idx = col + 4*(start_k + k)
+          text = f"{tag}-{idx}"
+        """
+        max_rows_out = table.rowCount() - 1
+        n = min(n, max_rows_out)
+
+        # Fill first n rows
+        for k in range(n):
+            r = 1 + k
+            idx = col + 4 * (start_k + k)  # <-- memory applied here
+            text = f"{tag}-{idx}" if tag else str(idx)
+            table.item(r, col).setText(text)
+
+        # Clear remaining rows
+        for r in range(1 + n, table.rowCount()):
+            table.item(r, col).setText("")
+
+    # SUMMARY TABLE

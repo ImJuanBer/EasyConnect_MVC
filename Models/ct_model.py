@@ -1,3 +1,5 @@
+import math
+
 from pyautocad import Autocad
 import pythoncom
 import win32com.client
@@ -12,22 +14,45 @@ class CTModel:
 
         self.all_leads_qty = None
         self.pyacad = Autocad()
-        self.lista_ct_tb_tag = list()
-        self.lista_ct_tag = list()
-        self.dict_tags = {"CT_TAG": self.lista_ct_tag, "TB_CT_TAG": self.lista_ct_tag}
 
-        self.wire_count = 0
-        self.idx_box = 0
-    def create_ct_hv(self):
+    def run(self, data: dict) -> dict:
+        inp = self._parse_inputs(data)
 
-        # Diccionario de configuración de cada grupo  { Nombre Grupo : Configuracion }
-        cts_config = {
-            "CT1": {"CT_RATIO": "600:5 MR", "CT_ACCY": "C400", "H0": 1, "H1": 1, "H2": 1, "H3": 1, "leads": 5,
-                    "CT_APPLICATION": "Predefined", "CT_TYPE": "protection"},
+        out = {}  # aquí juntamos TODO lo que el UI necesita
 
-            "CT2": {"CT_RATIO": "2000:5 MR", "CT_ACCY": "C400", "H0": 1, "H1": 1, "H2": 1, "H3": 1, "leads": 5,
-                    "CT_APPLICATION": "WTI", "CT_TYPE": "protection"},
+        # 1) Amps Calculation
+        out.update(self._calc_amps(inp))
 
-            "CT3": {"CT_RATIO": "100:5 SR", "CT_ACCY": "C400", "H0": 1, "H1": 1, "H2": 1, "H3": 1, "leads": 5,
-                    "CT_APPLICATION": "Predefined", "CT_TYPE": "protection"},
+
+
+        return out
+
+    # ========= MODEL HELPERS =========
+    def _parse_inputs(self, data: dict) -> dict:
+        # conviertes tipos aquí (lo mínimo)
+        return {
+            "so": data.get("so", ""),
+            "transformer_kVA": float(data.get("transformer_kVA") or 0),
+            "HV_voltage": float(data.get("HV_voltage") or 0),
+            "LV_voltage": float(data.get("LV_voltage") or 0),
+            "cooling_class": data.get("cooling_class", ""),
+            "CTH1_tag": data.get("CTH1_tag", ""),
+            "Bushing_OD": float(data.get("Bushing_OD") or 0),
+        }
+
+    # ========= MODEL FUNCTIONS =========
+    def _calc_amps(self, inp: dict) -> dict:
+        kva = inp["transformer_kVA"]
+        hv = inp["HV_voltage"]
+        lv = inp["LV_voltage"]
+
+        if hv <= 0 or lv <= 0:
+            return {"HV_amps": "", "LV_amps": ""}
+
+        hv_amps = kva * 1000 / (1.732 * hv * 1000)
+        lv_amps = kva * 1000 / (1.732 * lv)
+
+        return {
+            "HV_amps": f"{hv_amps:.2f}",
+            "LV_amps": f"{lv_amps:.2f}",
         }
